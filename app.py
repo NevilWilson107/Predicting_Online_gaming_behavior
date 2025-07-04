@@ -1,45 +1,115 @@
-# app.py
 import streamlit as st
 import pandas as pd
-import joblib
+import pickle
+import nbformat
+from nbconvert import HTMLExporter
+import streamlit.components.v1 as components
+from datetime import datetime
 
-# Load trained model and encoders
-model = joblib.load("model.pkl")
-label_encoder = joblib.load("label_encoder.pkl")
+# --- Render Jupyter Notebook ---
+def render_notebook_html(notebook_path):
+    with open(notebook_path, 'r', encoding='utf-8') as f:
+        notebook = nbformat.read(f, as_version=4)
+    html_exporter = HTMLExporter()
+    html_exporter.template_name = 'lab'
+    (body, _) = html_exporter.from_notebook_node(notebook)
+    components.html(body, height=1500, scrolling=True)
 
-st.title("🎮 Player Engagement Prediction App")
+# --- App UI ---
+def main():
+    st.set_page_config(
+        page_title="Online Game Behavior Prediction",
+        layout="wide",
+        page_icon="🎮",
+    )
 
-# --- User Inputs ---
-age = st.slider("Age", 10, 60, 25)
-gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-location = st.selectbox("Location", ["Urban", "Rural", "Suburban"])
-genre = st.selectbox("Favorite Game Genre", ["Action", "Strategy", "Puzzle", "RPG", "Sports"])
-play_time = st.slider("Play Time (Hours/Week)", 0, 100, 10)
-in_game_purchases = st.selectbox("In-Game Purchases", ["Yes", "No"])
-game_difficulty = st.selectbox("Preferred Game Difficulty", ["Easy", "Medium", "Hard"])
-sessions_per_week = st.slider("Gaming Sessions per Week", 0, 30, 7)
-avg_session_duration = st.slider("Average Session Duration (min)", 0, 300, 45)
-player_level = st.slider("Player Level", 1, 100, 10)
-achievements = st.slider("Achievements Unlocked", 0, 1000, 50)
+    st.sidebar.title("🎮 Online Game Behavior")
+    page = st.sidebar.radio("Go to", ["🏠 Home", "📓 Notebook", "🔮 Predict"])
 
-# --- Convert inputs into dataframe for model ---
-input_data = pd.DataFrame({
-    "Age": [age],
-    "Gender": [gender],
-    "Location": [location],
-    "GameGenre": [genre],
-    "PlayTimeHours": [play_time],
-    "InGamePurchases": [in_game_purchases],
-    "GameDifficulty": [game_difficulty],
-    "SessionsPerWeek": [sessions_per_week],
-    "AvgSessionDurationMinutes": [avg_session_duration],
-    "PlayerLevel": [player_level],
-    "AchievementsUnlocked": [achievements]
-})
+    if page == "🏠 Home":
+        st.title("🎮 Online Game Behavior Prediction")
+        st.image("img.png", use_container_width=True)
+
+        st.markdown("""
+        Predict how engaged a player is in an online game based on their gaming behavior and profile!
+        """)
+
+        st.markdown("""
+        <div style='display: flex; gap: 20px;'>
+            <a href='https://github.com/NevilWilson107/Predicting_Online_gaming_behavior.git' target='_blank'>
+                <button style='background-color:#007BFF; color:white; padding:10px; border:none; border-radius:5px;'>🔗 GitHub Repo</button>
+            </a>
+            <a href='https://www.kaggle.com/datasets/rabieelkharoua/predict-online-gaming-behavior-dataset' target='_blank'>
+                <button style='background-color:#28a745; color:white; padding:10px; border:none; border-radius:5px;'>📂 Dataset Source</button>
+            </a>
+        </div>
+        """, unsafe_allow_html=True)
+
+    elif page == "📓 Notebook":
+        st.subheader("📓 Code and Output")
+        render_notebook_html("online_game_behavior.ipynb")
+
+    elif page == "🔮 Predict":
+        st.subheader("🔮 Predict Player Engagement Level")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            Age = st.slider("Age", 10, 60, 25)
+            PlayTimeHours = st.slider("Play Time (hours/week)", 0, 100, 10)
+            SessionsPerWeek = st.slider("Sessions per Week", 0, 50, 5)
+            AvgSessionDurationMinutes = st.slider("Avg Session Duration (minutes)", 0, 300, 60)
+            PlayerLevel = st.slider("Player Level", 0, 100, 50)
+            AchievementsUnlocked = st.slider("Achievements Unlocked", 0, 100, 10)
+
+        with col2:
+            InGamePurchases = st.slider("In-Game Purchases", 0, 10, 1)
+            Gender = st.selectbox("Gender", ["Female", "Male", "Other"])
+            Location = st.selectbox("Location", ["Asia", "Europe", "North America", "Other"])
+            GameGenre = st.selectbox("Game Genre", ["Puzzle", "RPG", "Shooter", "Sports", "Strategy"])
+            GameDifficulty = st.selectbox("Game Difficulty", ["Easy", "Hard", "Medium"])
+
+        # --- Hardcoded Label Encoding ---
+        gender_map = {"Female": 0, "Male": 1, "Other": 2}
+        location_map = {"Asia": 0, "Europe": 1, "North America": 2, "Other": 3}
+        genre_map = {"Puzzle": 0, "RPG": 1, "Shooter": 2, "Sports": 3, "Strategy": 4}
+        difficulty_map = {"Easy": 0, "Hard": 1, "Medium": 2}
+
+        # --- Load model and scaler ---
+        model = pickle.load(open("game.sav", "rb"))
+        scaler = pickle.load(open("game_scaler.sav", "rb"))
+
+                # --- Scale only the 6 features scaler was trained on ---
+        scaled = scaler.transform([[
+            Age,
+            PlayTimeHours,
+            SessionsPerWeek,
+            AvgSessionDurationMinutes,
+            PlayerLevel,
+            AchievementsUnlocked
+        ]])[0]
+
+        # --- Combine scaled numerical features + unscaled InGamePurchases + encoded categoricals ---
+        final_input = list(scaled) + [
+            InGamePurchases,  # NOT scaled
+            gender_map[Gender],
+            location_map[Location],
+            genre_map[GameGenre],
+            difficulty_map[GameDifficulty]
+        ]
+
+        if st.button("🎯 Predict Engagement Level"):
+            result = model.predict([final_input])[0]
+
+            engagement_map = {
+                0: "High",
+                1: "Low",
+                2: "Medium"
+            }
+
+            label = engagement_map.get(result, f"Level {result}")
+            st.success(f"🕹️ Predicted Engagement Level: **{label}**")
 
 
-# Predict
-if st.button("Predict Engagement"):
-    prediction = model.predict(input_data)
-    engagement_level = label_encoder.inverse_transform(prediction)
-    st.success(f"Predicted Engagement Level: **{engagement_level[0]}**")
+if __name__ == "__main__":
+    main()
